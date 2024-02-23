@@ -15,11 +15,12 @@ AChunkAnchor::AChunkAnchor()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+	
 	rootSceneComponent = CreateDefaultSubobject<USceneComponent>(FName(TEXT("DefaultSceneComponent")));
 	SetRootComponent(rootSceneComponent);
-	createdOrRestored = false;
 	chunkRegistry = nullptr;
-	actorsPreparedToSave = TMap<int, FSavedActorContainer>();
+
+
 }
 
 
@@ -28,37 +29,50 @@ void AChunkAnchor::BeginPlay()
 {
 	Super::BeginPlay();
 	SetActorTickInterval(0.5);
+	ticksSinceBeginPlay = 0;
+
+	TArray<AActor*> chunksLoaded = TArray<AActor*>();
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AChunkAnchor::StaticClass(), chunksLoaded);
+	FString str = TEXT("AChunkAnchor::BeginPlay");
+	str.Appendf(TEXT(" Authority: %d, Count: %d"), HasAuthority() ? 1 : 0, chunksLoaded.Num());
+	GEngine->AddOnScreenDebugMessage(-1, 60, FColor::White, str);
+	
 }
 
 // Called every frame
 void AChunkAnchor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
-	if (chunkRegistry.IsValid()) {
-		CreateNeighbourChunksIfNeccesarily();
-		loadContentOrInitIfNeccesarily();
-	}
-	else {
-		TryFindChunkRegistry();
+	if (HasAuthority()) {
 		if (chunkRegistry.IsValid()) {
-			// was not found but now is found
-			handleChunkRegistryFound();
+			CreateNeighbourChunksIfNeccesarily();
+			loadContentOrInitIfNeccesarily();
+		}
+		else {
+			TryFindChunkRegistry();
+			if (chunkRegistry.IsValid()) {
+				// was not found but now is found
+				handleChunkRegistryFound();
+			}
 		}
 	}
+	ticksSinceBeginPlay += 1;
+
 
 }
 
 void AChunkAnchor::EndPlay(const EEndPlayReason::Type EndPlayReason) {
 	Super::EndPlay(EndPlayReason);
 
+	if (!HasAuthority()) {
+		return;
+	}
+
 	if (chunkRegistry.IsValid()) {
 		float x = RootComponent->GetComponentLocation().X;
 		float y = RootComponent->GetComponentLocation().Y;
 		chunkRegistry->UnloadChunk(x, y);
 	}
-
-	saveAllData();
 
 }
 
@@ -80,85 +94,21 @@ bool AChunkAnchor::IsPositionInBounds(FVector pos) {
 	return IsPositionInBounds(pos.X, pos.Y);
 }
 
-void AChunkAnchor::RemoveActorFromPreparedToSave(int actorId) {
-	actorsPreparedToSave.Remove(actorId);
-}
-
-void AChunkAnchor::SetActorPreparedToSave(int actorId, FSavedActorContainer container) {
-	actorsPreparedToSave.Add(actorId, container);
-}
-
-void AChunkAnchor::prepareAllActorsForSaving() {
-	if (!chunkRegistry.IsValid()) {
-		actorsPreparedToSave.Empty();
-		return;
-	}
-
-	TArray<AActor*> actors = TArray<AActor*>();
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AChunkSavableActor::StaticClass(), actors);
-
-	for (AActor* actor : actors) {
-		if (!actor->HasValidRootComponent()) {
-			continue;
-		}
-		if (!IsPositionInBounds(actor->GetActorLocation())) {
-			continue;
-		}
-		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::White, TEXT("Trying to save actor from chunk anchor"));
-		AChunkSavableActor* actor1 = Cast<AChunkSavableActor>(actor);
-		actor1->SaveToChunk(this);
-		actor1->DeleteFromChunkAnchorIfNeeded(this);
-	}
-
-	saveChunkInstance->SavedActors = TArray<FSavedActorContainer>();
-	actorsPreparedToSave.GenerateValueArray(saveChunkInstance->SavedActors);
-
-}
-
-void AChunkAnchor::saveAllData() {
-	if (chunkRegistry.IsValid()) {
-		float x = RootComponent->GetComponentLocation().X;
-		float y = RootComponent->GetComponentLocation().Y;
-		int xi = chunkRegistry->PositionToIndex(x);
-		int yi = chunkRegistry->PositionToIndex(y);
-
-		FString slotNameString = getSaveSlotName();
-		if (UChunkSaveData* saveChunkInstance = Cast<UChunkSaveData>(UGameplayStatics::CreateSaveGameObject(UChunkSaveData::StaticClass())))
-		{
-
-
-			if (UGameplayStatics::SaveGameToSlot(saveChunkInstance, slotNameString, 0))
-			{
-				GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Green, slotNameString);
-				actorsPreparedToSave.Empty();
-			}
-			else {
-				FString str = TEXT("Cannot save chunk ");
-				str.Append(slotNameString);
-				GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, str);
-			}
-		}
-		else {
-			FString str = TEXT("Cannot create chunk save ");
-			str.Append(slotNameString);
-			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, str);
-		}
-	}
-}
 
 void AChunkAnchor::handleChunkRegistryFound() {
-
-
-
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::handleChunkRegistryFound without server authority"));
+		return;
+	}
 	setSelfLabel();
 	FVector selfLocation = rootSceneComponent->GetComponentLocation();
 	float x = selfLocation.X;
 	float y = selfLocation.Y;
 
 	if (chunkRegistry->IsChunkLoaded(x, y)) {
-		//FString str = TEXT("");
-		//str.Appendf(TEXT("Chunk is already loaded during AChunkAnchor::BeginPlay, x = %f, y = %y"), x, y);
-		//GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, str);
+		FString str = TEXT("");
+		str.Appendf(TEXT("Chunk is already loaded during AChunkAnchor::BeginPlay, x = %f, y = %y"), x, y);
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, str);
 	}
 	else {
 		chunkRegistry->RegisterLoadedChunk(x, y, this);
@@ -167,6 +117,10 @@ void AChunkAnchor::handleChunkRegistryFound() {
 }
 
 bool AChunkAnchor::TryFindChunkRegistry() {
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::TryFindChunkRegistry without server authority"));
+		return true;
+	}
 	AActor* chunkRegistry_ = UGameplayStatics::GetActorOfClass(GetWorld(), AGlobalChunkRegistry::StaticClass());
 	if (chunkRegistry_) {
 		chunkRegistry = TWeakObjectPtr<AGlobalChunkRegistry>((AGlobalChunkRegistry*)chunkRegistry_);
@@ -190,6 +144,10 @@ void AChunkAnchor::setSelfLabel() {
 }
 
 bool AChunkAnchor::CreateNeighbourChunksIfNeccesarily() {
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::CreateNeighbourChunksIfNeccesarily without server authority"));
+		return true;
+	}
 	float x = RootComponent->GetComponentLocation().X;
 	float y = RootComponent->GetComponentLocation().Y;
 
@@ -204,6 +162,10 @@ bool AChunkAnchor::CreateNeighbourChunksIfNeccesarily() {
 }
 
 bool AChunkAnchor::CreateChunkIfNeccesary(float worldX, float worldY) {
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::CreateChunkIfNeccesary without server authority"));
+		return true;
+	}
 	if (!chunkRegistry.IsValid()) {
 		return false;
 	}
@@ -216,6 +178,9 @@ bool AChunkAnchor::CreateChunkIfNeccesary(float worldX, float worldY) {
 	FString name = TEXT("");
 	name.Appendf(TEXT("ChunkLevelInstance_%d_%d"), chunkRegistry->PositionToIndex(worldX), chunkRegistry->PositionToIndex(worldY));
 	ULevelStreamingDynamic* level = ULevelStreamingDynamic::LoadLevelInstance(GetWorld(), "ChunkLevel", FVector(worldX, worldY, 0), FRotator::ZeroRotator, success, name);
+	level->SetShouldBeLoaded(true);
+	level->SetShouldBeVisible(true);
+	GetWorld()->FlushLevelStreaming();
 	if (!success) {
 		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Cannot load chunk level in AChunkAnchor::CreateChunkIfNeccesary"));
 		UE_LOG(LogTemp, Warning, TEXT("Cannot load chunk level in AChunkAnchor::CreateChunkIfNeccesary"));
@@ -229,46 +194,68 @@ bool AChunkAnchor::CreateChunkIfNeccesary(float worldX, float worldY) {
 }
 
 
-FString AChunkAnchor::GetSaveSlotName(float worldPartitionCellSize, float x, float y) {
-	int xi = AGlobalChunkRegistry::PositionToIndex(x, worldPartitionCellSize);
-	int yi = AGlobalChunkRegistry::PositionToIndex(y, worldPartitionCellSize);
-	FString slotNameString = TEXT("");
-	slotNameString.Appendf(TEXT("chunk_%d_%d"), xi, yi);
-	return slotNameString;
-}
-
-FString AChunkAnchor::getSaveSlotName() {
-	check(chunkRegistry.IsValid());
-	float x = RootComponent->GetComponentLocation().X;
-	float y = RootComponent->GetComponentLocation().Y;
-	return GetSaveSlotName(chunkRegistry->WorldPartitionCellSize, x, y);
-}
-
-
 void AChunkAnchor::loadContentOrInitIfNeccesarily() {
-	if (createdOrRestored) {
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::loadContentOrInitIfNeccesarily without server authority"));
 		return;
 	}
-	FString slotName = getSaveSlotName();
-
-	if (UChunkSaveData* loadedGame = Cast<UChunkSaveData>(UGameplayStatics::LoadGameFromSlot(slotName, 0)))
-	{
-		// successfully loaded
+	if (!chunkRegistry.IsValid()) {
+		return;
 	}
-	else {
+	UChunkSaveData* chunkDataInstance = Cast<UChunkSaveData>(chunkRegistry->GetChunkData(GetActorLocation()));
+	if (!chunkDataInstance) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Cannot get chunk data instance in AChunkAnchor::loadContentOrInitIfNeccesarily"));
+		return;
+	}
+
+	// once after BeginPlay ensure actors are loaded
+	if (ticksSinceBeginPlay == 1) {
+		loadActorsWhichAreNotLoaded(chunkDataInstance);
+	}
+
+
+	if (!chunkDataInstance->IsDataCreated()) {
 		initializeContent();
+		chunkDataInstance->SetDataCreated(UGameplayStatics::GetTimeSeconds(GetWorld()));
 	}
+}
 
+void AChunkAnchor::loadActorsWhichAreNotLoaded(UChunkSaveData* chunkDataInstance) {
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::loadActorsWhichAreNotLoaded without server authority"));
+		return;
+	}
+	for (auto It = chunkDataInstance->CreateActorsConstIterator(); It; ++It) {
+		FSavedActorContainer container = It.Value();
+		if (chunkRegistry->IsSavableActorTracked(container.ActorSavableUID)) {
+			continue;
+		}
+		FActorSpawnParameters parameters = FActorSpawnParameters();
+		parameters.Owner = this;
+		parameters.Name = FName(container.ActorName);
+		AActor* spawnedActor = GetWorld()->SpawnActor(container.ActorClass, &container.ActorTransform, parameters);
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::White, TEXT("Spawned common successfully"));
+		if (!spawnedActor) continue;
+		AChunkSavableActor* spawnedActor1 = Cast<AChunkSavableActor>(spawnedActor);
+		FMemoryReader memoryReader = FMemoryReader(container.BinaryData);
+		spawnedActor1->SetupByLoading(memoryReader, chunkRegistry.Get());
+	}
 }
 
 void AChunkAnchor::initializeContent() {
-	/*
+	if (!HasAuthority()) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to run AChunkAnchor::initializeContent without server authority"));
+		return;
+	}
 	FVector selfLocation1 = rootSceneComponent->GetComponentLocation();
 	float x1 = selfLocation1.X;
 	float y1 = selfLocation1.Y;
 	FString str1 = TEXT("");
 	str1.Appendf(TEXT("initializeContent, x = %f, y = %f"), x1, y1);
-	GEngine->AddOnScreenDebugMessage(-1, 60, FColor::White, str1);
+	//GEngine->AddOnScreenDebugMessage(-1, 60, FColor::White, str1);
+	
+	
+	/*
 
 	FVector selfLocation = rootSceneComponent->GetComponentLocation();
 	int xi = chunkRegistry->PositionToIndex(selfLocation.X);

@@ -20,20 +20,6 @@ public:
 	// Sets default values for this actor's properties
 	AChunkAnchor();
 
-	/*
-	* Removes actor from map of prepared for saving if it is there
-	*/
-	void RemoveActorFromPreparedToSave(int actorId);
-	
-	/*
-	* Adds or sets data of saved actor in the map of prepared actors
-	*/
-	void SetActorPreparedToSave(int actorId, FSavedActorContainer container);
-
-	static FString GetSaveSlotName(float worldPartitionCellSize, float x, float y) {
-
-	}
-
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -43,31 +29,22 @@ protected:
 	bool CreateNeighbourChunksIfNeccesarily();
 	bool CreateChunkIfNeccesary(float worldX, float worldY);
 
+	int ticksSinceBeginPlay;
+
 	TWeakObjectPtr<AGlobalChunkRegistry> chunkRegistry;
 
 	USceneComponent* rootSceneComponent;
 
-	bool createdOrRestored;
-
-	/*
-	* actor uobject uid -> saved container
-	*/
-	TMap<int, FSavedActorContainer> actorsPreparedToSave;
-
-	void saveAllData();
-
-	/*
-	* Find actors that are on this chunk
-	*/
-	void prepareAllActorsForSaving();
-
-	void initializeContent();
-
 	void setSelfLabel();
 
 	void loadContentOrInitIfNeccesarily();
+	void initializeContent();
 
-	FString getSaveSlotName();
+	/*
+	* For each actor in chunk save instance:
+	*   create actor if it is not created according to global registry of loaded savable actors
+	*/
+	void loadActorsWhichAreNotLoaded(UChunkSaveData* chunkDataInstance);
 
 	/*
 	* Called when chunkRegistry is found.

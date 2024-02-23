@@ -6,7 +6,15 @@
 #include "UObject/Interface.h"
 #include "Serialization/NameAsStringProxyArchive.h"
 #include "GlobalChunkRegistry.h"
+#include "Kismet/GameplayStatics.h"
 #include "ChunkSavableActor.generated.h"
+
+USTRUCT()
+struct FSavedActorChunkSavedIndex {
+	GENERATED_BODY()
+	bool saved = false;
+	FVector position;
+};
 
 USTRUCT()
 struct FSavedActorContainer {
@@ -23,16 +31,17 @@ struct FSavedActorContainer {
 
 	UPROPERTY(SaveGame)
 	TArray<uint8> BinaryData;
+
+	UPROPERTY()
+	int64 ActorSavableUID;
 };
 
 UENUM()
 enum AChunkSavableActorState {
-	NOTHING_NEEDED,
-	END_SAVE_NEEDED,
-	DELETE_NEEDED,
-	INIT_NEEDED,
-	LOAD_NEEDED, // object will wait for outer load call
-	LOAD_OR_INIT_NEEDED
+	TRACKING, // object will be saved over time and in EndPlay
+	TRACKING_PAUSED_BY_STREAMING_UNLOAD,
+	LOAD_OR_INIT_NEEDED, // object will wait for outer call
+	NEED_TO_DESTROY_WITHOUT_HANDLING // actor should not exist, do not handle any saving or deletion
 };
 
 UCLASS()
@@ -41,66 +50,85 @@ class NOCUBETECH_API AChunkSavableActor : public AActor
 	GENERATED_BODY()
 
 private:
-	FVector prevPositionForFindingChunk = FVector::ZeroVector;
-
-	TWeakObjectPtr<AActor> currentChunkAnchor;
 	TWeakObjectPtr<AGlobalChunkRegistry> chunkRegistry;
 
-	//void findChunkAnchorIfNecessarily(bool switchToAnotherIfPositionInvalid);
-
-	bool foundChunkAnchorWithValidPosition();
-
 	AChunkSavableActorState state = LOAD_OR_INIT_NEEDED;
-	
-	UPROPERTY()
-	uint64 chunkSavedActorUniqueId;
 
-	void SetAsPreparedToSave(AActor* chunkAnchor);
+	UPROPERTY()
+	uint64 chunkSavedActorUniqueId = 0; // zero by default, but zero is valid only before 'init' or load
+
+	FSavedActorChunkSavedIndex currentlySavedIndex;
+
+	float lastSavedTime = 0;
+
+	void fillContainer(FSavedActorContainer& container);
+
+	// if id in chunkRegistry as loaded, destroy self, else start tracking
+	void startTracking();
+	void pauseTracking();
 
 protected:
+	USceneComponent* rootSceneComponent;
 	virtual void loadFromArchive(FArchive& archive) {};
-	virtual void saveToArchive(FArchive& archive) {};
-	virtual void setupByDefault() {};
 
-public:
-
-	void SetupByLoading(FArchive& archive) {
-		loadFromArchive(archive);
-		if (CanMoveBetweenChunks()) {
-			prevPositionForFindingChunk = GetActorLocation();
-		}
-		state = NOTHING_NEEDED;
-	}
-
-	// call virtual setupByDefault and set state to END_SAVE_NEEDED
-	void SetupByDefault()
-	{
-		setupByDefault();
-		state = END_SAVE_NEEDED;
+	virtual void saveToArchive(FArchive& archive) {
+		archive << chunkSavedActorUniqueId;
 	};
 
-	virtual void Tick(float DeltaSeconds) override;
+	virtual void setupByDefault() { return; };
+	
+	void tryFindChunkRegistry();
 
 
-	/*
-	* Loads chunk save data from the disk, adds the record to array, saves chunk data to the list. 
-	* Use in case when object is needed to be saved immediately (probably being destroyed), but chunk is not loaded.
-	* Warning! Trying to save an object using this to chunk data that already contains its record will lead to object doubling.
-	*/
-	bool SaveToChunkDataDirectly();
-
-	// Checks if the anchor is not null, is of AChunkAnchor class and GetActorLocation() is in chunk bounds
-	bool CanBeSavedToChunk(AActor* chunkAnchor);
-
-	void DeleteFromChunkAnchorIfNeeded(AActor* chunkAnchor);
-
-	void SetSaveNeeded() {
-		state = END_SAVE_NEEDED;
+	virtual float GetSaveInterval() {
+		return 60;
 	}
 
-	virtual bool CanMoveBetweenChunks() { return false; }
 
-	bool IsSavableReady() {
-		return state == NOTHING_NEEDED || state == END_SAVE_NEEDED ||
+public:
+	AChunkSavableActor();
+	/*
+	* If not saved anywhere: try find new dst
+	* If was saved: check is new dst == old dst, remove from old dst, save to new dst
+	*/
+	bool TrySaveToChunkRegistryDataUniquely(FVector position);
+	bool TryDeleteFromChunkRegistryData();
+
+	FString GetNameUsingId();
+
+
+	void SetupByLoading(FArchive& archive, AGlobalChunkRegistry* chunkRegistry_) {
+		check(state == LOAD_OR_INIT_NEEDED);
+		check(chunkSavedActorUniqueId == 0);
+		chunkRegistry = chunkRegistry_;
+		archive << chunkSavedActorUniqueId;
+		check(chunkSavedActorUniqueId != 0);
+		loadFromArchive(archive);
+		SetActorLabel(GetNameUsingId());
+		Rename(GetNameUsingId().GetCharArray().GetData());
+		startTracking();
+		currentlySavedIndex.saved = true;
+		currentlySavedIndex.position = GetActorLocation();
+	}
+
+	// call virtual setupByDefault and start tracking
+	void SetupByDefault(AGlobalChunkRegistry* chunkRegistry_)
+	{
+		check(state == LOAD_OR_INIT_NEEDED);
+		check(chunkSavedActorUniqueId == 0);
+		chunkRegistry = chunkRegistry_;
+		chunkSavedActorUniqueId = FDateTime::UtcNow().GetTicks();
+		setupByDefault();
+		SetActorLabel(GetNameUsingId());
+		Rename(GetNameUsingId().GetCharArray().GetData());
+		startTracking();
+	};
+
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	bool IsTracking() {
+		return state == TRACKING;
 	}
 };
