@@ -5,8 +5,10 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "DataStructures.h"
+#include "ChunkSave.h"
 #include "GlobalChunkRegistry.generated.h"
 
+class UChunkSaveData;
 
 // A global actor that stores pointers to every loaded chunk. Make sure that world partition origin is set to (0, 0)
 UCLASS()
@@ -18,22 +20,11 @@ public:
 	// Sets default values for this actor's properties
 	AGlobalChunkRegistry();
 
-	// Called when AChunkAnchor BeginPlay is executed
-	void RegisterLoadedChunk(float worldX, float worldY, AActor* chunkAnchor);
-
-	// Called when created a level containing the anchor
-	void RegisterCreatedChunk(float worldX, float worldY);
-
 	bool IsChunkLoaded(float worldX, float worldY);
 	bool IsChunkLoaded(FVector pos) { return IsChunkLoaded(pos.X, pos.Y); };
-	bool IsChunkCreated(float worldX, float worldY);
 	
 	TWeakObjectPtr<AActor> GetLoadedChunk(float worldX, float worldY);
 	TWeakObjectPtr<AActor> GetLoadedChunk(FVector pos) { return GetLoadedChunk(pos.X, pos.Y); };
-	
-	TWeakObjectPtr<AActor> GetLoadedOrUnloadedChunk(float worldX, float worldY);
-	TWeakObjectPtr<AActor> GetLoadedOrUnloadedChunk(FVector pos) { return GetLoadedOrUnloadedChunk(pos.X, pos.Y); };
-	
 	
 	UPROPERTY(EditAnywhere)
 	float WorldPartitionCellSize = 6400;
@@ -58,9 +49,8 @@ public:
 
 	void UnloadChunk(float worldX, float worldY);
 
-	UObject* GetChunkData(float worldX, float worldY);
+	UUniversalChunkDataContainer* GetChunkData(float worldX, float worldY, FString key, UClass* class_);
 	
-	UObject* GetChunkData(FVector pos);
 	
 	FString GetChunkDataSaveSlotName(int32 xIndex, int32 yIndex) {
 		FString slotNameString = TEXT("");
@@ -68,8 +58,9 @@ public:
 		return slotNameString;
 	}
 
-	const float ChunkDataSaveIntervalSeconds = 15;
 	const float ChunkDataUnloadIntervalSeconds = 120;
+	const float ChunkUnloadThresholdDistance = 5000;
+	const int SavingAndLoadingOperationsPerFrameLimit = 3;
 
 	bool AreTwoPositionsInOneChunk(FVector pos1, FVector pos2) {
 		int x1 = PositionToIndex(pos1.X);
@@ -90,25 +81,28 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	TArray<FVector> getAllPlayersPositions();
+
 	UPROPERTY()
 	FActorGrid loadedAnchors;
-
-	UPROPERTY()
-	FActorGrid loadedOrUnloadedAnchors;
-
-	UPROPERTY()
-	FBoolGrid createdAnhors;
 
 	UPROPERTY()
 	FObjectGrid loadedChunkData;
 
 	FInt64BoolMap trackedSavableActors;
 
+	static bool CircleCollidesWithSquare(float circleX, float circleY, float radius, float squareX, float squareY, float squareSize);
 
-	bool trySaveChunkData(UObject* chunkDataInstance, int32 xIndex, int32 yIndex);
+	bool trySaveChunkData(UChunkSaveData* chunkDataInstance, int32 xIndex, int32 yIndex);
 
-	// save, remove, invalidate loaded instances if necessarily
+	// save, remove, invalidate loaded instances if necessary
 	void updateLoadedChunkData();
+
+	// create and remove chunk anchors if necessary
+	void updateLoadedChunkAnchors();
+
+	void spawnChunkAnchor(int32 xIndex, int32 yIndex);
+	void destroyChunkAnchor(int32 xIndex, int32 yIndex);
 
 public:	
 	// Called every frame

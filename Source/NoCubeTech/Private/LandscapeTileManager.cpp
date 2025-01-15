@@ -28,7 +28,6 @@ ULandscapeTileManager::ULandscapeTileManager()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 	SetComponentTickInterval(0.1);
-	textureGenerationCache = nullptr;
 }
 
 
@@ -37,18 +36,13 @@ ULandscapeTileManager::ULandscapeTileManager()
 void ULandscapeTileManager::BeginPlay()
 {
 	Super::BeginPlay();
-
-	materialBase = LoadObject<UMaterial>(NULL, TEXT("/Script/Engine.Material'/Game/TestSourceColor.TestSourceColor'"));
+	materialBase = LoadObject<UMaterial>(NULL, TEXT("/Script/Engine.Material'/Game/ProceduralMaterials/ProceduralGroundMaterial.ProceduralGroundMaterial'"));
 	CheckForProceduralComponentAndCreateIfNotPresent();
 	FindWorldGenerator();
 
 }
 
 void ULandscapeTileManager::EndPlay(const EEndPlayReason::Type EndPlayReason) {
-	if (textureGenerationCache) {
-		delete textureGenerationCache;
-		textureGenerationCache = nullptr;
-	}
 }
 
 
@@ -61,23 +55,8 @@ void ULandscapeTileManager::TickComponent(float DeltaTime, ELevelTick TickType, 
 	}
 	ValidateTrackedPawns();
 	SetupLandscapeIfNecessary();
-	UpdateMaterialGeneration();
 }
 
-void ULandscapeTileManager::UpdateMaterialGeneration() {
-	const int RowsByThisIteration = 32;
-	if (textureGenerationCache) {
-		for (int i = 0; i < RowsByThisIteration; i++) {
-			textureGenerationCache->GenerateRow();
-			if (textureGenerationCache->IsReady()) {
-				EndSetupMaterial();
-				delete textureGenerationCache;
-				textureGenerationCache = nullptr;
-				break;
-			}
-		}
-	}
-}
 
 void ULandscapeTileManager::FindWorldGenerator() {
 	AActor* worldGenerator_ = UGameplayStatics::GetActorOfClass(GetWorld(), AGlobalWorldGenerator::StaticClass());
@@ -149,7 +128,7 @@ void ULandscapeTileManager::SetupLandscapeIfNecessary() {
 			CurrentDetails = calculatedDetails;
 		}
 		SetupGeometry();
-		StartSetupMaterial();
+		SetupMaterial();
 	}
 }
 
@@ -287,67 +266,23 @@ void ULandscapeTileManager::SetupGeometry() {
 	meshComponent->CreateMeshSection_LinearColor(0, vertices, triangles, normals, uv, colors, tangents, true);
 }
 
-void ULandscapeTileManager::StartSetupMaterial() {
+void ULandscapeTileManager::SetupMaterial() {
 	if (!worldGenerator.IsValid() || !worldGenerator.Get()) {
-		GEngine->AddOnScreenDebugMessage(-1, 10, FColor::Red, TEXT("Called ULandscapeTileManager::StartSetupMaterial with invalid generator."));
-		UE_LOG(LogTemp, Warning, TEXT("Called ULandscapeTileManager::StartSetupMaterial with invalid generator."));
+		GEngine->AddOnScreenDebugMessage(-1, 10, FColor::Red, TEXT("Called ULandscapeTileManager::SetupMaterial with invalid generator."));
+		UE_LOG(LogTemp, Warning, TEXT("Called ULandscapeTileManager::SetupMaterial with invalid generator."));
 		return;
 	}
-	if (textureGenerationCache) {
-		delete textureGenerationCache;
-		textureGenerationCache = nullptr;
-	}
-	textureGenerationCache = new TextureGenerationCache(*(worldGenerator->GetGenerator()));
-
-	int textureSize = CurrentDetails * PixelsBySquare;
-	float textureSizeFloat = (float)textureSize;
-	float cornerX = GetComponentLocation().X - TileSize / 2;
-	float cornerY = GetComponentLocation().Y - TileSize / 2;
-
-	// This is used for fixing the interpolation bug
-	// The interpolation bug: game uses interpolation to render the texture, but when it comes to using edge UV (0 and 1 values)
-	// it considers value from OPPOSITE EDGE OF THE TEXTURE for interpolation
-	// For example, if the texture is red at the top and blue at the bottom, the bug makes it have a red edge after blue body at the bottom
-	// Solution: bias the uv for 2 pixels and project the world coordinates
-	// projection formulas give us this magic math
-	float twoPixelGapInUvCoords = 2. / textureSizeFloat;
-	float delta = (TileSize / (1 - twoPixelGapInUvCoords * 2)) / textureSizeFloat;
-	float start_x = -twoPixelGapInUvCoords * (TileSize / (1 - twoPixelGapInUvCoords * 2)) + cornerX;
-	float start_y = -twoPixelGapInUvCoords * (TileSize / (1 - twoPixelGapInUvCoords * 2)) + cornerY;
-	const int maxChunkSize = 64; // chunkSize in textureGenerationCache is this value if the texture size is > this value
-	textureGenerationCache->Start(CurrentDetails * PixelsBySquare, fmin(CurrentDetails * PixelsBySquare, 16), start_x, start_y, delta);
-}
-
-void ULandscapeTileManager::EndSetupMaterial() {
-	if (!textureGenerationCache->IsReady()) {
-		GEngine->AddOnScreenDebugMessage(-1, 10, FColor::Red, TEXT("Called ULandscapeTileManager::EndSetupMaterial while material still being generated."));
-		UE_LOG(LogTemp, Warning, TEXT("Called ULandscapeTileManager::EndSetupMaterial while material still being generated."));
-		return;
-	}
-	int textureSize = CurrentDetails * PixelsBySquare;
 	if (!materialBase) {
 		// TODO: warning logging otha staf fuck
 		GEngine->AddOnScreenDebugMessage(-1, 5, FColor::Red, TEXT("Base Material is null"));
 	}
-
 	CheckForProceduralComponentAndCreateIfNotPresent();
-	// create material
-
-	FString materialInstanceName = TEXT("");
-	materialInstanceName.Appendf(TEXT("ProceduralMaterial_%d_%d"), chunkX, chunkY);
-	UMaterialInstanceDynamic* newMtl = UMaterialInstanceDynamic::Create(materialBase, this, FName(materialInstanceName)); // TODO: dont forget give a name to the texture
-
-	FString textureName = TEXT("");
-	textureName.Appendf(TEXT("ProceduralTexture_%d_%d"), chunkX, chunkY);
-
-	UTexture2D* texture = CreateTextureBGRAWithMips(textureGenerationCache->resultBGRA, textureSize, textureSize, FName(textureName));
-
-	newMtl->SetTextureParameterValue(TEXT("BaseColor"), texture);
-	meshComponent->SetMaterial(0, newMtl);
+	meshComponent->SetMaterial(0, materialBase);
 }
 
-
 UTexture2D* ULandscapeTileManager::CreateTextureBGRAWithMips(uint8* data, int width, int height, FName textureName) {
+	check(false); // legacy
+
 	UTexture2D* texture = UTexture2D::CreateTransient(width, height, PF_B8G8R8A8, textureName);
 	if (texture == nullptr) {
 		return nullptr;

@@ -9,9 +9,7 @@
 class NOCUBETECH_API BiomeGenerator {
 protected:
 	int64 seed;
-	TArray<AbstractBiome*> registeredBiomes;
-	TArray<PrioritizedBiomeWeightsModifier> sortedByPriorityBiomeModifiersForHeight;
-	TArray<PrioritizedBiomeWeightsModifier> sortedByPriorityBiomeModifiersForColor;
+	AbstractBiome* registeredBiomes[BIOMES_COUNT];
 
 public:
 	BiomeGenerator(int64 seed);
@@ -26,30 +24,17 @@ public:
 
 	/*
 	* Generates biomes probabilities for height generation by calling each PrioritizedBiomeWeightsModifier procedure and applying a normalizing function.
-	* Returns probabilities
-	* betta: any positive number. The greater betta is the sharper is edge between biomes
 	*/
-	BiomeWeights GenerateBiomesForHeight(float x, float y, double betta) const;
+	void GenerateBiomesForHeight(float x, float y, BiomeWeights& out) const;
 
 	/*
-	* Generates biomes probabilities for color generation by calling each PrioritizedBiomeWeightsModifier procedure and applying a normalizing function.
-	* Returns probabilities
-	* betta: any positive number. The greater betta is the sharper is edge between biomes
+	* Generates biomes probabilities for additional objects generation by calling each PrioritizedBiomeWeightsModifier procedure and applying a normalizing function.
 	*/
-	BiomeWeights GenerateBiomesForColor(float x, float y, double betta) const;
+	void GenerateBiomesForAdditionalObjects(float x, float y, BiomeWeights& out) const;
 
-	// 1) Checks if instance is already registered and returns if true
-	// 2) Adds the biome to registered list
-	// 3) Adds its modifiers to modifiers list and sorts it
-	void RegisterBiome(AbstractBiome* instance);
+	float GenerateWeightedHeight(const BiomeWeights& weights, float x, float y) const;
 
-	int GetBiomesCount() const {
-		return registeredBiomes.Num();
+	AbstractBiome* GetBiomeInstance(int id) {
+		return registeredBiomes[id];
 	}
-
-	float GenerateWeightedHeight(const BiomeWeights& weights, BiomeHeightGenerationData& data) const;
-
-	FLinearColor GenerateWeightedColor(const  BiomeColorGenerationData& data, const BiomeWeights& biomeProbabilities) const;
-
-	TArray<float> GenerateAbsoluteDerivatives(float x, float y) const;
 };

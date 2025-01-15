@@ -4,15 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "AbstractBiome.h"
-#include "BiomeGenerationData.h"
 
 
 class NOCUBETECH_API OceanBiome : public AbstractBiome {
 public:
-	float GenerateHeight(BiomeHeightGenerationData& data);
-	FLinearColor GenerateColor(const BiomeColorGenerationData& data);
-	TArray<PrioritizedBiomeWeightsModifier> GetModifiersForHeight();
-	TArray<PrioritizedBiomeWeightsModifier> GetModifiersForColor();
+	float GenerateHeight(float x, float y, int64 seed);
 
-	static void initial_value_modifier(AbstractBiome* biomeInstance, float x, float y, int64 seed, BiomeWeights& weights);
+	static float GetWeight(float x, float y, int64 seed);
 };

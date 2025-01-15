@@ -12,7 +12,6 @@ public:
 	AbstractAdditionalObjGenerator* generator;
 	AbstractBiome* biome;
 
-
 	FAdditionalGeneratorWithBiome(AbstractAdditionalObjGenerator* generator, AbstractBiome* biome)
 		: generator(generator), biome(biome)
 	{
@@ -20,47 +19,25 @@ public:
 };
 
 // non-serializable
-struct NOCUBETECH_API FGeneratorArray {
-public:
-	TArray<AbstractAdditionalObjGenerator*> generators;
-
-	FGeneratorArray(const TArray<AbstractAdditionalObjGenerator*>& generators)
-		: generators(generators)
-	{
-	}
-
-	FGeneratorArray() {
-		generators = TArray<AbstractAdditionalObjGenerator*>();
-	}
-};
-
-/*
-* non-serializable
-* Fields:
-* float priority;
-* TMap<int, FGeneratorArray> generators; - mapping between biome id and list of generators
-*/
-struct NOCUBETECH_API FPrioritizedBiomeToGeneratorsMap {
-public:
-	float priority;
-	TMap<int, FGeneratorArray> biomesToGenerators;
-
-	FPrioritizedBiomeToGeneratorsMap(float priority) {
-		biomesToGenerators = TMap<int, FGeneratorArray>();
-	}
-};
-
-// non-serializable
 class NOCUBETECH_API AdditionalObjectsGeneratorRegistry
 {
 protected:
-	TArray<FAdditionalGeneratorWithBiome> registeredGenerators;
+	TArray<AbstractAdditionalObjGenerator*> registeredGenerators;
+	TArray<FAdditionalGeneratorWithBiome> registeredGeneratorsSortedByPriority;
+	
 
 public:
+
 	AdditionalObjectsGeneratorRegistry();
 	~AdditionalObjectsGeneratorRegistry();
 
 	void RegisterGeneratorForBiome(AbstractBiome* biome, AbstractAdditionalObjGenerator* generator);
 
-	TArray<FPrioritizedBiomeToGeneratorsMap> GetGeneratorsSortedByPriority(TSet<int> biomes);
+	AbstractAdditionalObjGenerator* GetGeneratorById(int id) {
+		check(id >= 0);
+		check(id < registeredGenerators.Num());
+		return registeredGenerators[id];
+	}
+
+	TArray<FAdditionalGeneratorWithBiome> GetGeneratorsSortedByPriority(TSet<int> biomes);
 };

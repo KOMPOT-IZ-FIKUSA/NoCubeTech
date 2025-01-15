@@ -36,12 +36,25 @@ struct FSavedActorContainer {
 	int64 ActorSavableUID;
 };
 
+class SimpleStaticIncrementHelper {
+public:
+	static int incrementingVariable; // needed to be able to create two savable actors with different ids at the same time. Limited with 10000.
+	static int getIncrementResult() {
+		if (incrementingVariable < 0 || incrementingVariable > 9999) {
+			incrementingVariable = 0;
+		}
+		else {
+			incrementingVariable += 1;
+		}
+		return incrementingVariable;
+	}
+};
+
 UENUM()
-enum AChunkSavableActorState {
-	TRACKING, // object will be saved over time and in EndPlay
-	TRACKING_PAUSED_BY_STREAMING_UNLOAD,
-	LOAD_OR_INIT_NEEDED, // object will wait for outer call
-	NEED_TO_DESTROY_WITHOUT_HANDLING // actor should not exist, do not handle any saving or deletion
+enum FDestroySavableActorMode {
+	DELETE,
+	SAVE,
+	NONE
 };
 
 UCLASS()
@@ -52,10 +65,8 @@ class NOCUBETECH_API AChunkSavableActor : public AActor
 private:
 	TWeakObjectPtr<AGlobalChunkRegistry> chunkRegistry;
 
-	AChunkSavableActorState state = LOAD_OR_INIT_NEEDED;
-
 	UPROPERTY()
-	uint64 chunkSavedActorUniqueId = 0; // zero by default, but zero is valid only before 'init' or load
+	uint64 chunkSavedActorUniqueId = 0; // zero by default, but zero is valid only before 'init' or load. Zero state means object is not set up (by default or loaded)
 
 	FSavedActorChunkSavedIndex currentlySavedIndex;
 
@@ -63,16 +74,16 @@ private:
 
 	void fillContainer(FSavedActorContainer& container);
 
-	// if id in chunkRegistry as loaded, destroy self, else start tracking
-	void startTracking();
-	void pauseTracking();
 
 protected:
+	AGlobalChunkRegistry* getChunkRegistry() {
+		return chunkRegistry.Get();
+	}
+
 	USceneComponent* rootSceneComponent;
 	virtual void loadFromArchive(FArchive& archive) {};
 
 	virtual void saveToArchive(FArchive& archive) {
-		archive << chunkSavedActorUniqueId;
 	};
 
 	virtual void setupByDefault() { return; };
@@ -81,7 +92,7 @@ protected:
 
 
 	virtual float GetSaveInterval() {
-		return 60;
+		return 600;
 	}
 
 
@@ -96,17 +107,30 @@ public:
 
 	FString GetNameUsingId();
 
+	void DestroySavable(FDestroySavableActorMode mode);
 
 	void SetupByLoading(FArchive& archive, AGlobalChunkRegistry* chunkRegistry_) {
-		check(state == LOAD_OR_INIT_NEEDED);
-		check(chunkSavedActorUniqueId == 0);
-		chunkRegistry = chunkRegistry_;
+		if (!HasAuthority()) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to load AChunkSavableActor from an archive without authority in AChunkSavableActor::SetupByLoading. Destroying..."));
+			Destroy();
+			return;
+		}
+		if (chunkSavedActorUniqueId != 0) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to load AChunkSavableActor from an archive when is already set up in AChunkSavableActor::SetupByLoading. Destroying..."));
+			Destroy();
+			return;
+		}
 		archive << chunkSavedActorUniqueId;
-		check(chunkSavedActorUniqueId != 0);
+		chunkRegistry = chunkRegistry_;
+		if (chunkSavedActorUniqueId == 0) { // chunkSavedActorUniqueId must be zero (invalid) before loading, but non-zero after loading
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Loaded AChunkSavableActor with 0 id. Destroying..."));
+			Destroy();
+			return;
+		}
 		loadFromArchive(archive);
 		SetActorLabel(GetNameUsingId());
-		Rename(GetNameUsingId().GetCharArray().GetData());
-		startTracking();
+		chunkRegistry->SetSavableActorTracked(chunkSavedActorUniqueId);
+		NetCullDistanceSquared = chunkRegistry_->WorldPartitionLoadRange * chunkRegistry_->WorldPartitionLoadRange;
 		currentlySavedIndex.saved = true;
 		currentlySavedIndex.position = GetActorLocation();
 	}
@@ -114,21 +138,44 @@ public:
 	// call virtual setupByDefault and start tracking
 	void SetupByDefault(AGlobalChunkRegistry* chunkRegistry_)
 	{
-		check(state == LOAD_OR_INIT_NEEDED);
-		check(chunkSavedActorUniqueId == 0);
+		if (!HasAuthority()) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to setup AChunkSavableActor by default without authority in AChunkSavableActor::SetupByDefault. Destroying..."));
+			Destroy();
+			return;
+		}
+		if (chunkSavedActorUniqueId != 0) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Trying to load AChunkSavableActor from an archive when is already set up in AChunkSavableActor::SetupByLoading"));
+			Destroy();
+			return;
+		}
 		chunkRegistry = chunkRegistry_;
-		chunkSavedActorUniqueId = FDateTime::UtcNow().GetTicks();
+		chunkSavedActorUniqueId = FDateTime::UtcNow().GetTicks() + SimpleStaticIncrementHelper::getIncrementResult();
+
+		if (chunkSavedActorUniqueId == 0) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Set up new AChunkSavableActor with 0 id. Destroying..."));
+			Destroy();
+			return;
+		}
+
+		currentlySavedIndex.saved = false;
 		setupByDefault();
 		SetActorLabel(GetNameUsingId());
-		Rename(GetNameUsingId().GetCharArray().GetData());
-		startTracking();
+		chunkRegistry->SetSavableActorTracked(chunkSavedActorUniqueId);
+		NetCullDistanceSquared = chunkRegistry_->WorldPartitionLoadRange * chunkRegistry_->WorldPartitionLoadRange;
 	};
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	bool IsTracking() {
-		return state == TRACKING;
+	int64 GetSavableUniqueId() {
+		return chunkSavedActorUniqueId;
+	}
+
+	bool IsSavableValid() {
+		if (!HasAuthority()) {
+			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Yellow, TEXT("AChunkSavableActor::IsSavableValid called without authority"));
+		}
+		return chunkSavedActorUniqueId != 0;
 	}
 };

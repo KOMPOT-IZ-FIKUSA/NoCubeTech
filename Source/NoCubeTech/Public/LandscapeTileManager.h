@@ -8,7 +8,6 @@
 #include "ProceduralMeshComponent.h"
 #include "GlobalWorldGenerator.h"
 #include "WorldGenerator.h"
-#include "TextureGenerationCache.h"
 #include "LandscapeTileManager.generated.h"
 
 
@@ -33,10 +32,7 @@ protected:
 	void SetupGeometry();
 
 	// Creates an instance of TextureGenerationCache and starts the generation
-	void StartSetupMaterial();
-
-	// Called when textureGenerationCache is ready (found values of each pixel)
-	void EndSetupMaterial();
+	void SetupMaterial();
 
 	void CheckForProceduralComponentAndCreateIfNotPresent();
 
@@ -49,15 +45,6 @@ protected:
 	*/
 	void SetupLandscapeIfNecessary();
 
-	/*
-	* If textureGenerationCache is valid:
-	* 1) Generates rows of pixels if still in generation
-	* 2) Calls EndSetupMaterial() and sets textureGenerationCache=nullptr if generation is done.
-	*/
-	void UpdateMaterialGeneration();
-
-	// nullptr if generation not in progress
-	TextureGenerationCache* textureGenerationCache;
 
 	int CalculateDetails() const;
 

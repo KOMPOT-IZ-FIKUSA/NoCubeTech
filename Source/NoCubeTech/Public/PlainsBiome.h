@@ -4,15 +4,19 @@
 
 #include "CoreMinimal.h"
 #include "AbstractBiome.h"
-#include "BiomeGenerationData.h"
 
 
 class NOCUBETECH_API PlainsBiome : public AbstractBiome {
 public:
-	float GenerateHeight(BiomeHeightGenerationData& data);
-	FLinearColor GenerateColor(const BiomeColorGenerationData& data);
-	TArray<PrioritizedBiomeWeightsModifier> GetModifiersForHeight();
-	TArray<PrioritizedBiomeWeightsModifier> GetModifiersForColor();
+	static const int PlainsBiomeId = 0;
 
-	static void initial_value_modifier(AbstractBiome* biomeInstance, float x, float y, int64 seed, BiomeWeights& weights);
+	float GenerateHeight(float x, float y, int64 seed);
+
+	static float GetWeight(float x, float y, int64 seed, float bicubic200k);
+
+	PlainsBiome() : AbstractBiome(PlainsBiomeId) {
+
+	}
+
+	
 };

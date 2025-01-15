@@ -4,7 +4,9 @@
 #include "GlobalWorldGenerator.h"
 #include "HillsBiome.h"
 #include "AdditionalStoneGenerator.h"
-#include "PlainsBiome.h"
+#include "IncludeBiomes.h"
+#include "FlatTerrainPartGenerator.h"
+#include "BiomesGenerator.h"
 
 // Sets default values
 AGlobalWorldGenerator::AGlobalWorldGenerator()
@@ -29,36 +31,19 @@ void AGlobalWorldGenerator::BeginPlay()
 }
 
 void AGlobalWorldGenerator::initGenerator() {
-	GlobalColorGenerationData* globalColorGenerationData = new GlobalColorGenerationData();
-	if (grassTexture == nullptr) {
-		// TODO: handle exceptions
-	}
-	if (rockTexture == nullptr) {
 
-	}
-	globalColorGenerationData->grassTexture = new TextureReadonlySource(grassTexture);
-
-	globalColorGenerationData->rockTexture = new TextureReadonlySource(rockTexture);
-	globalColorGenerationData->rockTexture2 = new TextureReadonlySource(rockTexture2);
-	globalColorGenerationData->rockTexture3 = new TextureReadonlySource(rockTexture3);
-
-	globalColorGenerationData->dirtTexture1 = new TextureReadonlySource(dirtTexture1);
-
-	int64 seed = 2;
-
-
-	HillsBiome* hillsBiome = new HillsBiome();
-	PlainsBiome* plainsBiome = new PlainsBiome();
+	int64 seed = 1;
 
 	BiomeGenerator* biomeGenerator = new BiomeGenerator(seed);
-	biomeGenerator->RegisterBiome(hillsBiome);
-	biomeGenerator->RegisterBiome(plainsBiome);
 
 	AdditionalObjectsGeneratorRegistry* additionalObjectsGeneratorRegistry = new AdditionalObjectsGeneratorRegistry();
 	AdditionalStoneGenerator* stoneGenerator = new AdditionalStoneGenerator();
-	additionalObjectsGeneratorRegistry->RegisterGeneratorForBiome(hillsBiome, stoneGenerator);
+	FlatTerrainPartGenerator* flatTerrainPartGenerator = new FlatTerrainPartGenerator();
 
-	generator = new WorldGenerator(seed, biomeGenerator, globalColorGenerationData, additionalObjectsGeneratorRegistry);
+	
+	additionalObjectsGeneratorRegistry->RegisterGeneratorForBiome(biomeGenerator->GetBiomeInstance(HillsBiome::HillsBiomeId), flatTerrainPartGenerator);
+	
+	generator = new WorldGenerator(seed, biomeGenerator, additionalObjectsGeneratorRegistry);
 }
 
 

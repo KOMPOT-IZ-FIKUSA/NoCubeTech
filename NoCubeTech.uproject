@@ -25,6 +25,10 @@
 		{
 			"Name": "SmartObjects",
 			"Enabled": true
+		},
+		{
+			"Name": "MovieRenderPipeline",
+			"Enabled": true
 		}
 	]
 }

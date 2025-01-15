@@ -5,7 +5,8 @@
 
 AdditionalObjectsGeneratorRegistry::AdditionalObjectsGeneratorRegistry()
 {
-	registeredGenerators = TArray<FAdditionalGeneratorWithBiome>();
+	registeredGeneratorsSortedByPriority = TArray<FAdditionalGeneratorWithBiome>();
+	registeredGenerators = TArray<AbstractAdditionalObjGenerator*>();
 }
 
 AdditionalObjectsGeneratorRegistry::~AdditionalObjectsGeneratorRegistry()
@@ -19,8 +20,16 @@ void AdditionalObjectsGeneratorRegistry::RegisterGeneratorForBiome(AbstractBiome
 		UE_LOG(LogTemp, Error, TEXT("Cannot register biome generator: nullptr"));
 	}
 
+	if (generator->IsRegistered()) {
+		check(generator->GetId() < registeredGenerators.Num());
+	}
+	else {
+		generator->SetRegistered(registeredGenerators.Num());
+		registeredGenerators.Add(generator);
+	}
+
 	// Check if the combination already exists
-	for (const FAdditionalGeneratorWithBiome& registeredPair : registeredGenerators) {
+	for (const FAdditionalGeneratorWithBiome& registeredPair : registeredGeneratorsSortedByPriority) {
 		if (registeredPair.biome == biome && registeredPair.generator == generator) {
 			GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Yellow, TEXT("Generator is already registered for this Biome"));
 			UE_LOG(LogTemp, Warning, TEXT("Generator is already registered for this Biome"));
@@ -28,35 +37,21 @@ void AdditionalObjectsGeneratorRegistry::RegisterGeneratorForBiome(AbstractBiome
 		}
 	}
 
-	registeredGenerators.Add(FAdditionalGeneratorWithBiome(generator, biome));
-	registeredGenerators.Sort([]
+
+	registeredGeneratorsSortedByPriority.Add(FAdditionalGeneratorWithBiome(generator, biome));
+	registeredGeneratorsSortedByPriority.Sort([]
 	(const FAdditionalGeneratorWithBiome& a, const FAdditionalGeneratorWithBiome& b) {
 			return a.generator->GetPriority() < b.generator->GetPriority();
 		});
 }
 
-TArray<FPrioritizedBiomeToGeneratorsMap> AdditionalObjectsGeneratorRegistry::GetGeneratorsSortedByPriority(TSet<int> biomes) {
-	TMap<float, FPrioritizedBiomeToGeneratorsMap> result1 = TMap<float, FPrioritizedBiomeToGeneratorsMap>();
-	for (const FAdditionalGeneratorWithBiome& pair : registeredGenerators) {
+TArray<FAdditionalGeneratorWithBiome> AdditionalObjectsGeneratorRegistry::GetGeneratorsSortedByPriority(TSet<int> biomes) {
+	TArray<FAdditionalGeneratorWithBiome> result = TArray<FAdditionalGeneratorWithBiome>();
+	for (const FAdditionalGeneratorWithBiome& pair : registeredGeneratorsSortedByPriority) {
 		int biomeIndex = pair.biome->GetId();
 		if (biomes.Contains(biomeIndex)) {
-			float priority = pair.generator->GetPriority();
-			if (!result1.Contains(priority)) {
-				result1[priority] = FPrioritizedBiomeToGeneratorsMap(priority);
-			}
-			if (!result1[priority].biomesToGenerators.Contains(biomeIndex)) {
-				result1[priority].biomesToGenerators.Add(biomeIndex, FGeneratorArray());
-			}
-			result1[priority].biomesToGenerators[biomeIndex].generators.Add(pair.generator);
+			result.Add(pair);
 		}
 	}
-
-	TArray<FPrioritizedBiomeToGeneratorsMap> result2 = TArray<FPrioritizedBiomeToGeneratorsMap>();
-	result1.GenerateValueArray(result2);
-	result2.Sort(
-		[](const FPrioritizedBiomeToGeneratorsMap& a, const FPrioritizedBiomeToGeneratorsMap& b) {
-			return a.priority < b.priority;
-		}
-	);
-	return result2;
+	return result;
 }

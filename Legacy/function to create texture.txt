@@ -1,0 +1,97 @@
+
+UTexture2D* ALandscapeTile::CreateTextureBGRAWithMips(uint8* data, int width, int height, FName textureName) {
+	UTexture2D* texture = UTexture2D::CreateTransient(width, height, PF_B8G8R8A8, textureName);
+	if (texture == nullptr) {
+		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Red, TEXT("Cannot create a texture in ALandscapeTile::CreateTextureBGRAWithMips"));
+		return nullptr;
+	}
+	void* TextureData = texture->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(TextureData, data, width * height * 4);
+	texture->GetPlatformData()->Mips[0].BulkData.Unlock();
+	texture->MipGenSettings = TMGS_SimpleAverage;
+	//Declaring buffers here to reduce reallocs
+	//We double buffer mips, using the prior buffer to build the next buffer
+	TArray<uint8> _mipRGBAs;
+	TArray<uint8> _mipRGBBs;
+
+	bool ticker = false;
+	//Let's try making one ourself
+	const uint8* priorData = data;
+	int priorwidth = width;
+	int priorheight = height;
+
+	while (width > 0 && height > 0)
+	{
+		int mipwidth = priorwidth >> 1;
+		int mipheight = priorheight >> 1;
+		if (mipwidth == 0 || mipheight == 0)
+		{
+			break;
+		}
+		TArray<uint8>* mipRGBAs = ticker ? &_mipRGBAs : &_mipRGBBs;
+		ticker = !ticker;
+		mipRGBAs->Reset();
+		mipRGBAs->AddUninitialized(mipwidth * mipheight * 4);
+
+		int dataPerRow = priorwidth * 4;
+
+		//Average out the values
+		uint8* dataOut = mipRGBAs->GetData();
+		for (int y = 0; y < mipheight; y++)
+		{
+			auto* dataInRow0 = priorData + (dataPerRow * y * 2);
+			auto* dataInRow1 = dataInRow0 + dataPerRow;
+			for (int x = 0; x < mipwidth; x++)
+			{
+				int totalB = *dataInRow0++;
+				int totalG = *dataInRow0++;
+				int totalR = *dataInRow0++;
+				int totalA = *dataInRow0++;
+				totalB += *dataInRow0++;
+				totalG += *dataInRow0++;
+				totalR += *dataInRow0++;
+				totalA += *dataInRow0++;
+
+				totalB += *dataInRow1++;
+				totalG += *dataInRow1++;
+				totalR += *dataInRow1++;
+				totalA += *dataInRow1++;
+				totalB += *dataInRow1++;
+				totalG += *dataInRow1++;
+				totalR += *dataInRow1++;
+				totalA += *dataInRow1++;
+
+				totalB >>= 2;
+				totalG >>= 2;
+				totalR >>= 2;
+				totalA >>= 2;
+
+				*dataOut++ = (uint8)totalB;
+				*dataOut++ = (uint8)totalG;
+				*dataOut++ = (uint8)totalR;
+				*dataOut++ = (uint8)totalA;
+			}
+			dataInRow0 += priorwidth * 2;
+			dataInRow1 += priorwidth * 2;
+		}
+
+		// Allocate next mipmap.
+		texture->GetPlatformData()->Mips.Add(new FTexture2DMipMap());
+		FTexture2DMipMap* Mip = &texture->GetPlatformData()->Mips.Last(0);
+		Mip->SizeX = mipwidth;
+		Mip->SizeY = mipheight;
+		Mip->BulkData.Lock(LOCK_READ_WRITE);
+		void* mipData = Mip->BulkData.Realloc(mipRGBAs->Num());
+		FMemory::Memcpy(mipData, mipRGBAs->GetData(), mipRGBAs->Num());
+		Mip->BulkData.Unlock();
+
+		priorData = mipRGBAs->GetData();
+		priorwidth = mipwidth;
+		priorheight = mipheight;
+	}
+	texture->SRGB = false;
+	texture->AddressX = TextureAddress::TA_Clamp;
+	texture->AddressY = TextureAddress::TA_Clamp;
+	texture->UpdateResource();
+	return texture;
+}

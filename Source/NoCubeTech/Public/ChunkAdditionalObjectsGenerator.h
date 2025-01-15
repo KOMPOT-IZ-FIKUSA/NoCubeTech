@@ -5,17 +5,28 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "DataStructures.h"
+#include "ChunkSavableActor.h"
 #include "GlobalWorldGenerator.h"
 #include "ChunkAdditionalObjectsGenerator.generated.h"
 
 
-/*
-* Generation in 2 steps: 
-* 1) generate all objects by priority for the chunk
-* 2) cross-validate with neighbour chunks
-*/
+USTRUCT()
+struct FPosition2DWithId {
+	GENERATED_BODY()
+public:
+	FVector2D position;
+	int id;
+
+	FPosition2DWithId(const FVector2D& position, int id)
+		: position(position), id(id)
+	{
+	}
+
+	FPosition2DWithId() = default;
+};
+
 UCLASS()
-class NOCUBETECH_API AChunkAdditionalObjectsGenerator : public AActor
+class NOCUBETECH_API AChunkAdditionalObjectsGenerator : public AChunkSavableActor
 {
 	GENERATED_BODY()
 	
@@ -23,31 +34,47 @@ public:
 	// Sets default values for this actor's properties
 	AChunkAdditionalObjectsGenerator();
 
+protected:
+
 	UPROPERTY()
 	int chunkX;
 
 	UPROPERTY()
 	int chunkY;
 
-protected:
-	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
+	static const int MaximumNewObjectsPerTick = 1;
+
+
+	TWeakObjectPtr<AGlobalWorldGenerator> globalWorldGenerator;
 
 	UPROPERTY()
-	FActorListGrid objectsRegisteredToCells;
+	TArray<FPosition2DWithId> generatedLandscapePositions;
 
-	UPROPERTY()
-	TWeakObjectPtr<AGlobalWorldGenerator> worldGenerator;
 
 	UPROPERTY()
 	bool additionalObjectsGenerated;
 
 	bool tryFindGeneratorIfNecessary();
 
-	void tryGenerateObjectsIfNecessary();
+	void setupByDefault() override;
+
+	static void extractBiomesIdsFromProbabilities(const BiomeWeights& weights, TSet<int>& result);
+
+	void loadFromArchive(FArchive& archive) override;
+	
+	void saveToArchive(FArchive& archive) override;
+
+
+	void handleGenerationIteration();
+
+	void generatePositionsAndGeneratorsIds();
+
 
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
+	TSet<int> FindBiomesIds(const WorldGenerator& generator);
+
+	bool HasFinishedLandscapeObjectsGeneration();
 
 };

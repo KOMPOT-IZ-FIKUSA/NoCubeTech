@@ -2,128 +2,161 @@
 
 
 #include "HIllsBiome.h"
-#include "BiomeGenerationData.h"
 #include "RandomGenerator.h"
 
-
-
-FLinearColor HillsBiome::GenerateColor(const BiomeColorGenerationData& data) {
-
-	const float grassFrequency = 1;
-	const float grassScale = data.delta / grassFrequency;
-	const FLinearColor colorGrass1 = data.globalColorGenerationData.grassTexture->GetColorNearest(data.x * grassFrequency, data.y * grassFrequency, grassScale);
-	FLinearColor colorGrass = colorGrass1;
-
-	const float rockFrequency = 1;
-	const float rockScale = data.delta / rockFrequency;
-
-	const float dirtFrequency = 1;
-	const float dirtScale = data.delta / dirtFrequency;
-
-
-	float displacementX = RandomGenerator::BilinearNoiseInterpolation(data.x / 1000, data.y / 1000, data.seed + 2845269151145);
-	float displacementY = RandomGenerator::BilinearNoiseInterpolation(data.x / 1000, data.y / 1000, data.seed + 2845269151146) * (1 - displacementX);
-	const FLinearColor colorRock1 = data.globalColorGenerationData.rockTexture->GetColorNearest((data.x + displacementX * 1000) * rockFrequency, (data.y + displacementY * 1000) * rockFrequency, rockScale);
-
-	displacementX = RandomGenerator::BilinearNoiseInterpolation(data.x / 1000, data.y / 1000, data.seed + 2845269151142345);
-	displacementY = RandomGenerator::BilinearNoiseInterpolation(data.x / 1000, data.y / 1000, data.seed + 2845269151123446) * (1 - displacementX);
-	const FLinearColor colorRock2 = data.globalColorGenerationData.rockTexture2->GetColorNearest((data.x + displacementX * 1000) * rockFrequency, (data.y + displacementY * 1000) * rockFrequency, rockScale);
-
-	displacementX = RandomGenerator::BilinearNoiseInterpolation(data.x / 4000, data.y / 4000, data.seed + 2845269151452345);
-	displacementY = RandomGenerator::BilinearNoiseInterpolation(data.x / 4000, data.y / 4000, data.seed + 28452651123446) * (1 - displacementX);
-	FLinearColor colorRock3 = data.globalColorGenerationData.rockTexture3->GetColorNearest((data.x + displacementX * 4000) * rockFrequency / 2, (data.y + displacementY * 4000) * rockFrequency / 2, rockScale * 2);
-	float randomBrightnessStone = RandomGenerator::BicubicNoiseInterpolation(data.x / 4000, data.y / 4000, data.seed + 120962545617);
-	randomBrightnessStone = 0.5 + randomBrightnessStone * 0.5;
-	colorRock3 *= randomBrightnessStone;
-
-	float steepness = data.bump1000Meters.averageDeltaAbs;
-
-	float rockInterpolationWeight1 = RandomGenerator::BilinearNoiseInterpolation(data.x / 8000, data.y / 8000, data.seed + 378891322432354) + 0.3;
-	float rockInterpolationWeight2 = RandomGenerator::BilinearNoiseInterpolation(data.x / 800, data.y / 800, data.seed + 37889132245320) + 0.1;
-	float rockInterpolationWeight3 = RandomGenerator::BilinearNoiseInterpolation(data.x / 600, data.y / 600, data.seed + 378891322420) / 10 + 0.01 + steepness / 150000 + (sin(data.calculatedHeight / 15000) + 1) / 8 + data.calculatedHeight / 2500000 + (sin(data.x / 50000) + 1) / 10;
-	rockInterpolationWeight1 = rockInterpolationWeight1 * rockInterpolationWeight1;
-	rockInterpolationWeight2 = rockInterpolationWeight2 * rockInterpolationWeight2;
-	rockInterpolationWeight3 = rockInterpolationWeight3 * rockInterpolationWeight3 * rockInterpolationWeight3 * rockInterpolationWeight3;
-	FLinearColor colorRock =
-		(
-			colorRock1 * rockInterpolationWeight1 +
-			colorRock2 * rockInterpolationWeight2 +
-			colorRock3 * rockInterpolationWeight3
-		) / (
-			rockInterpolationWeight1 +
-			rockInterpolationWeight2 +
-			rockInterpolationWeight3
-			);
-
-
-	FLinearColor colorDirt = data.globalColorGenerationData.dirtTexture1->GetColorNearest(data.x * dirtFrequency, data.y * dirtFrequency, dirtScale);
-
-	float soilWeight = 0;
-
-	//soilWeight += RandomGenerator::BicubicNoiseInterpolation(data.x / 2000, data.y / 2000, data.seed + 31289873455346564) / 10;
-
-
-	soilWeight += (10000 - steepness) / 500;
-	soilWeight = sigmoid(soilWeight);
-
-	float grassWeight = sigmoid(soilWeight * 20 - 15);
-	float randomBrightness = 0;
-	randomBrightness += RandomGenerator::BicubicNoiseInterpolation(data.x / 4000, data.y / 4000, data.seed + 120962545617);
-	randomBrightness += RandomGenerator::BicubicNoiseInterpolation(data.x / 2000, data.y / 2000, data.seed + 12096545617);
-	randomBrightness += RandomGenerator::BicubicNoiseInterpolation(data.x / 1000, data.y / 1000, data.seed + 12096545615);
-	randomBrightness += RandomGenerator::BicubicNoiseInterpolation(data.x / 500, data.y / 500, data.seed + 1209645615);
-	FLinearColor result = soilWeight * ((colorDirt * (1 - grassWeight) + colorGrass * grassWeight)) + (1 - soilWeight) * colorRock;
-	result = result * (randomBrightness / 4 * 0.25 + 0.75);
-	return result;
-}
-void HillsBiome::initialValueModifierForHeight(AbstractBiome* biomeInstance, float x, float y, int64 seed, BiomeWeights& weights) {
-	weights.values[biomeInstance->GetId()] = RandomGenerator::BicubicNoiseInterpolation(x / 400000, y / 400000, seed - 80621);
-}
-void HillsBiome::initialValueModifierForColor(AbstractBiome* biomeInstance, float x, float y, int64 seed, BiomeWeights& weights) {
-	weights.values[biomeInstance->GetId()] = RandomGenerator::BicubicNoiseInterpolation(x / 400000, y / 400000, seed - 80621) + 0.15;
+float periodic_1(float a) {
+    return 4 * abs(a - floor(a) - 0.5) - 1;
 }
 
-TArray<PrioritizedBiomeWeightsModifier> HillsBiome::GetModifiersForHeight() {
-	TArray<PrioritizedBiomeWeightsModifier> result;
-	result.Add(PrioritizedBiomeWeightsModifier(0, &initialValueModifierForHeight, this));
-	return result;
+
+float FikusDistanceToLineSegment(float x, float y, float x1, float y1, float x2, float y2, float blur) {
+
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float lenSquared = dx * dx + dy * dy;
+
+    float dist;
+
+    if (lenSquared == 0.0) {
+        // Line segment is a point
+        dist = sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
+    }
+    else {
+        float t = fmax(0.0, fmin(1.0, ((x - x1) * dx + (y - y1) * dy) / lenSquared));
+        float projX = x1 + t * dx;
+        float projY = y1 + t * dy;
+        dist = sqrt((x - projX) * (x - projX) + (y - projY) * (y - projY));
+    }
+
+    float val = fmax(0.0, fmin(1.0, dist / blur));
+    return 1.0 - val;
 }
 
-TArray<PrioritizedBiomeWeightsModifier> HillsBiome::GetModifiersForColor() {
-	TArray<PrioritizedBiomeWeightsModifier> result;
-	result.Add(PrioritizedBiomeWeightsModifier(0, &initialValueModifierForColor, this));
-	return result;
+float FikusMountainsGenerator1(int xAnchor, int yAnchor, float x, float y, int seed) {
+
+    int seed0 = seed;
+    seed += xAnchor * 12345 + yAnchor * 12346;
+
+    x = (x - float(xAnchor)) * 2.0 - 1.0;
+    y = (y - float(yAnchor)) * 2.0 - 1.0;
+
+    x += RandomGenerator::BicubicNoiseInterpolation(0.7 * x, 0.7 * y, seed) * 0.8 - 0.4;
+    y += RandomGenerator::BicubicNoiseInterpolation(0.7 * x, 0.7 * y, seed + 1) * 0.8 - 0.4;
+
+
+    float result2 = 0.0;
+
+    float minDistance = 10000000.0;
+
+    float branch1XPrev = 0.;
+    float branch1YPrev = 0.;
+    float angle = RandomGenerator::BilinearNoiseInterpolation(float(xAnchor) * 0.4, float(yAnchor) * 0.4, seed0) * 6.28;
+
+    float branch1X = cos(angle) * 1.8;
+    float branch1Y = sin(angle) * 1.8;
+
+    float result1 = FikusDistanceToLineSegment(x, y, branch1X, branch1Y, -branch1X, -branch1Y, 0.1 + RandomGenerator::IntToFloat(seed - 1));
+
+    result1 = (result1 + result1 * result1) * 0.5;
+
+    int subBranches = RandomGenerator::IntToInt(seed) % 20;
+
+    for (int i = 0; i < subBranches; i++) {
+        if (RandomGenerator::IntToInt(seed + i * 100) % 3 == 0) continue;
+
+        float k = float(i) / float(subBranches - 1) * 2.0 - 1.0;
+
+        float branch2X1 = branch1X * k;
+        float branch2Y1 = branch1Y * k;
+
+        float angle3 = 1.0;
+        if (i % 2 == 0) {
+            angle3 = angle + 3.141592 / 2.0 - 1.3 * k;
+        }
+        else {
+            angle3 = angle - 3.141592 / 2.0 + 1.3 * k;
+        }
+        angle3 += (RandomGenerator::IntToFloat(seed + 4 + i) - 0.5) / 2.0;
+
+        float length_ = 0.2 + 0.8 * RandomGenerator::IntToFloat(seed + i * 12 + 166);
+
+        float branch2X2 = branch2X1 + cos(angle3) * length_;
+        float branch2Y2 = branch2Y1 + sin(angle3) * length_;
+
+        float distortedX = x + RandomGenerator::BicubicNoiseInterpolation(2.0 * x, 2.0 * y, seed + 5 + i) * 0.4 - 0.2;
+        float distortedY = y + RandomGenerator::BicubicNoiseInterpolation(2.0 * x, 2.0 * y, seed + 6 + i) * 0.4 - 0.2;
+
+        float val = FikusDistanceToLineSegment(distortedX, distortedY, branch2X1, branch2Y1, branch2X2, branch2Y2, 0.6 + 1.2 * RandomGenerator::IntToFloat(seed + i * 124 + 12));
+        val = val * val * val * (0.5 + RandomGenerator::IntToFloat(seed + i * 13 + 14) * 0.5);
+        result2 = fmax(result2, val);
+
+    }
+    float threshold1 = 0.5 + RandomGenerator::IntToFloat(seed - 3);
+    float threshold2 = 0.8 + RandomGenerator::IntToFloat(seed - 4) * 0.2;
+    if (result1 > threshold1) result1 = threshold1;
+    if (result2 > threshold2) result2 = threshold2;
+
+    float res = fmax(result1, result2 * 0.8);
+    res = fmax(0.0, fmin(1.0, res));
+
+    return res;
+
 }
 
-float HillsBiome::GenerateHeight(BiomeHeightGenerationData& data) {
-	float orientationAngle = RandomGenerator::BilinearNoiseInterpolation(data.x / 1000000, data.y / 1000000, data.seed - 95876) * 3.14;
 
-	float sin_ = sin(orientationAngle);
-	float cos_ = cos(orientationAngle);
 
-	float result = 0;
-	float conv = 0;
-	for (int i = 0; i < 8; i++) {
-		float generated = RandomGenerator::BilinearNoiseInterpolation((data.x) / 6000 + cos_ * i, (data.y) / 6000 + sin_ * i, data.seed - 95877);
-		result += generated * 2000;
-	}
+float calculate3(float x, float y, int seed) {
+    float x0 = floor(x);
+    float y0 = floor(y);
 
-	conv = 0;
-	for (int i = 0; i < 10; i++) {
-		float generated = RandomGenerator::BilinearNoiseInterpolation((data.x) / 12000 + cos_ * i, (data.y) / 12000 + sin_ * i, data.seed - 958771);
-		result += generated * 3000;
-	}
+    int x0i = int(x0);
+    int y0i = int(y0);
 
-	conv = 0;
-	for (int i = 0; i < 10; i++) {
-		float generated = RandomGenerator::BilinearNoiseInterpolation((data.x) / 25000 + cos_ * i, (data.y) / 25000 + sin_ * i, data.seed - 95878);
-		result += generated * 4000;
-	}
+    float dx = x - x0;
+    float dy = y - y0;
 
-	conv = 0;
-	float generated = RandomGenerator::BilinearNoiseInterpolation((data.x) / 200000, (data.y) / 200000, data.seed - 95879);
-	conv += generated;
-	result += conv * conv * conv * 350000;
-	result *= 0.9;
-	return result;
+    int coordResultX0;
+    int coordResultY0;
+
+    if (dx >= 0.5) {
+        coordResultX0 = x0i;
+        dx -= 0.5;
+    }
+    else {
+        coordResultX0 = x0i - 1;
+        dx += 0.5;
+    }
+
+    if (dy >= 0.5) {
+        coordResultY0 = y0i;
+        dy -= 0.5;
+    }
+    else {
+        coordResultY0 = y0i - 1;
+        dy += 0.5;
+    }
+
+
+    float v00, v01, v10, v11;
+
+    v00 = FikusMountainsGenerator1(coordResultX0, coordResultY0, x, y, seed);
+    v01 = FikusMountainsGenerator1(coordResultX0, coordResultY0 + 1, x, y, seed);
+    v10 = FikusMountainsGenerator1(coordResultX0 + 1, coordResultY0, x, y, seed);
+    v11 = FikusMountainsGenerator1(coordResultX0 + 1, coordResultY0 + 1, x, y, seed);
+
+    return
+        (1.0 - dx) * (1.0 - dy) * v00 +
+        (1.0 - dx) * dy * v01 +
+        dx * (1.0 - dy) * v10 +
+        dx * dy * v11;
+}
+
+
+float HillsBiome::GenerateHeight(float x, float y, int64 seed) {
+
+    return
+        70000 * calculate3(x / 250000, y / 250000, seed) +
+        100000 * (RandomGenerator::BicubicNoiseInterpolation(x / 100000000, y / 100000000, seed + 1)) +
+        0 * 30000 * (RandomGenerator::BilinearNoiseInterpolation(x / 40000, y / 40000, seed) - 0.5);
+
 }

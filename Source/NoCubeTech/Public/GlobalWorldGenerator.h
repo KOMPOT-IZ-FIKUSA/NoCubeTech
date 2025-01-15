@@ -37,6 +37,9 @@ public:
 	UTexture2D* grassTexture;
 
 	UPROPERTY(EditAnywhere)
+	UTexture2D* grassTexture2;
+
+	UPROPERTY(EditAnywhere)
 	UTexture2D* rockTexture;
 
 	UPROPERTY(EditAnywhere)

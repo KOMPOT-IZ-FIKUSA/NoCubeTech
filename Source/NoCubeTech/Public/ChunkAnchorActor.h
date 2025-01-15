@@ -4,10 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "ChunkAdditionalObjectsGenerator.h"
 #include "GlobalChunkRegistry.h"
 #include "GlobalWorldGenerator.h"
 #include "ChunkSave.h"
 #include "ChunkSavableActor.h"
+#include "BasicChunkData.h"
 #include "ChunkAnchorActor.generated.h"
 
 
@@ -20,38 +22,30 @@ public:
 	// Sets default values for this actor's properties
 	AChunkAnchor();
 
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	bool TryFindChunkRegistry();
-	bool CreateNeighbourChunksIfNeccesarily();
-	bool CreateChunkIfNeccesary(float worldX, float worldY);
-
 	int ticksSinceBeginPlay;
 
 	TWeakObjectPtr<AGlobalChunkRegistry> chunkRegistry;
 
+
 	USceneComponent* rootSceneComponent;
+
+	AChunkAdditionalObjectsGenerator* objectsGenerator;
 
 	void setSelfLabel();
 
-	void loadContentOrInitIfNeccesarily();
 	void initializeContent();
 
 	/*
 	* For each actor in chunk save instance:
 	*   create actor if it is not created according to global registry of loaded savable actors
 	*/
-	void loadActorsWhichAreNotLoaded(UChunkSaveData* chunkDataInstance);
-
-	/*
-	* Called when chunkRegistry is found.
-	* Creates content if the chunk was just created.
-	* Shows an error if chunk was already loaded (according to chunkRegistry data)
-	*/
-	void handleChunkRegistryFound();
+	void loadActorsWhichAreNotLoaded(UBasicChunkData* chunkDataInstance);
 
 
 public:
@@ -64,5 +58,11 @@ public:
 	bool IsGlobalRegistryFound() {
 		return chunkRegistry.IsValid();
 	}
+
+	AChunkAdditionalObjectsGenerator* GetAdditionalObjectsGenerator();
+
+	float FindDistanceToClosestPlayer();
+
+	void postInitWithChunkRegistry(AGlobalChunkRegistry* chunkRegistry_);
 
 };

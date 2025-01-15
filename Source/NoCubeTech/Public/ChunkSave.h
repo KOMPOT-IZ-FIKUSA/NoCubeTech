@@ -5,93 +5,139 @@
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
 #include "Serialization/NameAsStringProxyArchive.h"
-#include "ChunkSavableActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "ChunkSave.generated.h"
+
+UCLASS()
+class NOCUBETECH_API UUniversalChunkDataContainer : public UObject {
+	GENERATED_BODY()
+private:
+	UChunkSaveData* chunkDataOwner = nullptr;
+
+public:
+
+	void SetChunkDataChanged();
+	void SetChunkDataAccessed();
+	bool IsChunkDataValid();
+	void SetUp(UChunkSaveData* chunkDataOwner_);
+
+};
 
 UCLASS()
 class NOCUBETECH_API UChunkSaveData : public USaveGame
 {
 	GENERATED_BODY()
-protected:
-	bool isValid = true;
-	bool changed = false;
-	float lastSavedSeconds = 0;
-	float lastChangedSeconds = 0;
+
+private:
+
+	
 
 	UPROPERTY()
-	TMap<int64, FSavedActorContainer> SavedActors;
-
+	TMap<FString, UUniversalChunkDataContainer*> dataContainers = {};
+	
 	UPROPERTY()
-	bool dataCreated = false;
+	TMap<FString, UClass*> dataContainersClasses = {};
 
-public:
+	UWorld* worldContextObject = nullptr;
 
-	bool IsDataCreated() {
-		return dataCreated;
-	}
+	bool dirty = true;
 
-	void SetDataCreated(float worldTimeSeconds) {
-		if (!dataCreated) {
-			dataCreated = true;
-			SetChanged(worldTimeSeconds);
+	float lastAccessedTime = 0;
+
+	UClass* findContainerClass(FString classPathName) {
+		UClass** foundClass = dataContainersClasses.Find(classPathName);
+		if (foundClass != nullptr) {
+			return *foundClass;
+		}
+		else {
+
+			UClass* SaveGameClass = UClass::TryFindTypeSlow<UClass>(classPathName);
+			if (SaveGameClass == nullptr)
+			{
+				SaveGameClass = LoadObject<UClass>(nullptr, *classPathName);
+			}
+			dataContainersClasses.Add(classPathName, SaveGameClass);
+			return SaveGameClass;
 		}
 	}
 
-	void PutActor(int64 id, FSavedActorContainer& container, float worldTimeSeconds) {
-		SavedActors.Add(id, container);
-		SetChanged(worldTimeSeconds);
-		
-		FString str = TEXT("Put actor to chunk data ");
-		str.AppendInt(id);
-		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Green, str);
+public:
+
+	void SetDirty() {
+		dirty = true;
+		UpdateAccessed();
 	}
 
-	auto CreateActorsConstIterator() {
-		return SavedActors.CreateConstIterator();
-	}
-
-	void RemoveActor(int64 id, float worldTimeSeconds) {
-		SavedActors.Remove(id);
-		SetChanged(worldTimeSeconds);
-
-		FString str = TEXT("Removed actor from chunk data ");
-		str.AppendInt(id);
-		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Green, str);
-	}
-
-	bool ContainsActor(int64 id) {
-		return SavedActors.Contains(id);
-	}
-
-	FSavedActorContainer GetActor(int64 id) {
-		return SavedActors[id];
+	bool IsChunkDataValid() {
+		return worldContextObject != nullptr;
 	}
 
 	void Invalidate() {
-		isValid = false;
+		worldContextObject = nullptr;
 	}
 
-	bool IsValid() {
-		return isValid;
+	void UpdateAccessed() {
+		lastAccessedTime = UGameplayStatics::GetTimeSeconds(worldContextObject);
 	}
 
-	void SetChanged(float worldTimeSeconds) {
-		check(isValid);
-		changed = true;
-		lastChangedSeconds = worldTimeSeconds;
+	void SetUp(UWorld* worldContextObject_) {
+		check(worldContextObject_ != nullptr);
+		check(worldContextObject == nullptr);
+		worldContextObject = worldContextObject_;
+		UpdateAccessed();
 	}
 
-	float GetLastChangedSeconds() {
-		return lastChangedSeconds;
+	float GetLastAccessedSeconds() {
+		return lastAccessedTime;
 	}
 
-	float GetLastSavedSeconds() {
-		return lastSavedSeconds;
+	UUniversalChunkDataContainer* GetDataContainer(FString key, UClass* class_) {
+
+		UUniversalChunkDataContainer** universalContainer = dataContainers.Find(key);
+		
+		if (universalContainer != nullptr) {
+			return *universalContainer;
+		}
+		else {
+			UUniversalChunkDataContainer* universalContainer1 = NewObject<UUniversalChunkDataContainer>(GetTransientPackage(), class_);
+			universalContainer1->SetUp(this);
+			dataContainers.Add(key, universalContainer1);
+			return universalContainer1;
+		}
+	};
+
+	bool SaveToSlotIfDirty(FString slotName) {
+		if (dirty) {
+			return UGameplayStatics::SaveGameToSlot(this, slotName, 0);
+			dirty = false;
+		}
+		else {
+			return true;
+		}
 	}
 
-	void SetSaved(float worldTimeSeconds) {
-		changed = false;
-		lastSavedSeconds = worldTimeSeconds;
+	void Serialize(FArchive& ar) override {
+		if (ar.IsLoading()) {
+			FString key;
+			ar << key;
+			FString containerClassPathName;
+			ar << containerClassPathName;
+			UClass* containerClass = findContainerClass(containerClassPathName);
+			check(containerClass != nullptr);
+			UUniversalChunkDataContainer* chunkDataObj = NewObject<UUniversalChunkDataContainer>(GetTransientPackage(), containerClass);
+			chunkDataObj->SetUp(this);
+			chunkDataObj->Serialize(ar);
+			dataContainers.Add(key, chunkDataObj);
+			dirty = false;
+		}
+		else {
+			for (auto pair : dataContainers) {
+				FString containerClassPathName = pair.Value->GetClass()->GetPathName();
+				ar << pair.Key;
+				ar << containerClassPathName;
+				pair.Value->Serialize(ar);
+			}
+		}
 	}
+
 };

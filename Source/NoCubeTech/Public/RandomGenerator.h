@@ -13,13 +13,20 @@ public:
 	RandomGenerator();
 	~RandomGenerator();
 
-	static int64 IntToInt(int64 a);
+	static int IntToInt(int a);
 
-	static float IntToFloat(int64 a);
+	static float IntToFloat(int a);
 
-	static float Int_x_y_seed_ToFloat(int64 x, int64 y, int64 seed);
+	static float Int_x_y_seed_ToFloat(int x, int y, int seed);
 
-	static float BilinearNoiseInterpolation(float x, float y, int64 seed);
+	static float Int_x_y_z_seed_ToFloat(int x, int y, int z, int seed);
 
-	static float BicubicNoiseInterpolation(float x, float y, int64 seed);
+	static float BilinearNoiseInterpolation(float x, float y, int seed);
+
+	static float BicubicNoiseInterpolation(float x, float y, int seed);
+
+	
+	static float PeriodicBilinearNoiseInterpolation(float x, float y, int periodX, int periodY, int seed);
+
+	static float TrilinearNoiseInterpolation(float x, float y, float z, int seed);
 };

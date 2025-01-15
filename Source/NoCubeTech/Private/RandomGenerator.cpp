@@ -11,7 +11,7 @@ RandomGenerator::~RandomGenerator()
 {
 }
 
-int64 RandomGenerator::IntToInt(int64 a) {
+int RandomGenerator::IntToInt(int a) {
 	a = (a ^ 61) ^ (a >> 16);
 	a = a + (a << 3);
 	a = a ^ (a >> 4);
@@ -20,15 +20,19 @@ int64 RandomGenerator::IntToInt(int64 a) {
 	return a;
 }
 
-float RandomGenerator::IntToFloat(int64 a) {
+float RandomGenerator::IntToFloat(int a) {
 	return (IntToInt(a) & 0x000000000000FFFF) * 0.0000152587890625; // (r % 2^16) / 2^16
 }
 
-float RandomGenerator::Int_x_y_seed_ToFloat(int64 x, int64 y, int64 seed) {
-	return IntToFloat(x * 13579 + y * 1357911 + seed);
+float RandomGenerator::Int_x_y_seed_ToFloat(int x, int y, int seed) {
+	return IntToFloat(x * 18579 + y * 13571 + seed);
 }
 
-float RandomGenerator::BilinearNoiseInterpolation(float x, float y, int64 seed) {
+float RandomGenerator::Int_x_y_z_seed_ToFloat(int x, int y, int z, int seed) {
+	return IntToFloat(x * 13959 + y * 15798 + z * 345341 + seed);
+}
+
+float RandomGenerator::BilinearNoiseInterpolation(float x, float y, int seed) {
 	int x0 = floor(x);
 	int y0 = floor(y);
 	float v00 = Int_x_y_seed_ToFloat(x0, y0, seed);
@@ -46,7 +50,58 @@ float RandomGenerator::BilinearNoiseInterpolation(float x, float y, int64 seed) 
 
 }
 
-float RandomGenerator::BicubicNoiseInterpolation(float x, float y, int64 seed) {
+float RandomGenerator::TrilinearNoiseInterpolation(float x, float y, float z, int seed) {
+	int x0 = floor(x);
+	int y0 = floor(y);
+	int z0 = floor(z);
+	float v000 = Int_x_y_z_seed_ToFloat(x0, y0, z0, seed);
+	float v010 = Int_x_y_z_seed_ToFloat(x0, y0 + 1, z0, seed);
+	float v100 = Int_x_y_z_seed_ToFloat(x0 + 1, y0, z0, seed);
+	float v110 = Int_x_y_z_seed_ToFloat(x0 + 1, y0 + 1, z0, seed);
+	float v001 = Int_x_y_z_seed_ToFloat(x0, y0, z0 + 1, seed);
+	float v011 = Int_x_y_z_seed_ToFloat(x0, y0 + 1, z0 + 1, seed);
+	float v101 = Int_x_y_z_seed_ToFloat(x0 + 1, y0, z0 + 1, seed);
+	float v111 = Int_x_y_z_seed_ToFloat(x0 + 1, y0 + 1, z0 + 1, seed);
+
+	float dx = x - x0;
+	float dy = y - y0;
+	float dz = z - z0;
+	return
+		v000 * (1 - dx) * (1 - dy) * (1 - dz) +
+		v010 * (1 - dx) * dy * (1 - dz) +
+		v100 * dx * (1 - dy) * (1 - dz) +
+		v110 * dx * dy * (1 - dz) +
+		v001 * (1 - dx) * (1 - dy) * dz +
+		v011 * (1 - dx) * dy * dz +
+		v101 * dx * (1 - dy) * dz +
+		v111 * dx * dy * dz;
+
+}
+
+float RandomGenerator::PeriodicBilinearNoiseInterpolation(float x, float y, int periodX, int periodY, int seed) {
+	float xf = floor(x);
+	float yf = floor(y);
+	
+	int x0 = ((int)xf % periodX + periodX) % periodX;
+	int y0 = ((int)floor(y) % periodY + periodY) % periodY;
+	int x1 = (x0 + 1) % periodX;
+	int y1 = (y0 + 1) % periodY;
+	float v00 = Int_x_y_seed_ToFloat(x0, y0, seed);
+	float v01 = Int_x_y_seed_ToFloat(x0, y1, seed);
+	float v10 = Int_x_y_seed_ToFloat(x1, y0, seed);
+	float v11 = Int_x_y_seed_ToFloat(x1, y1, seed);
+
+	float dx = x - xf;
+	float dy = y - yf;
+	return
+		v00 * (1 - dx) * (1 - dy) +
+		v01 * (1 - dx) * dy +
+		v10 * dx * (1 - dy) +
+		v11 * dx * dy;
+
+}
+
+float RandomGenerator::BicubicNoiseInterpolation(float x, float y, int seed) {
 	int x0 = floor(x);
 	int y0 = floor(y);
 	float v00 = Int_x_y_seed_ToFloat(x0, y0, seed);
