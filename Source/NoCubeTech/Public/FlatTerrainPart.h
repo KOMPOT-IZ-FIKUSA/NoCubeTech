@@ -28,6 +28,9 @@ public:
 	UPROPERTY()
 	TArray<FVector> vertices;
 
+	UPROPERTY()
+	TArray<FVector2D> uvs;
+
 
 	UPROPERTY()
 	UProceduralMeshComponent* mesh;
@@ -55,7 +58,7 @@ protected:
 
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	void CreateGeometryOfOneStone(TArray<FVector>& vertices, TArray<int>& faces, int seed);
+	void CreateGeometryOfOneStone(TArray<FVector>& vertices, TArray<int>& faces, TArray<FVector>& normalsOut, int seed);
 
 
 private:

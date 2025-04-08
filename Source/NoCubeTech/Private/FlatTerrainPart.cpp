@@ -19,6 +19,7 @@ AFlatTerrainPart::AFlatTerrainPart() : storableReference() {
 	vertices = {};
 	normals = {};
 	faces = {};
+	uvs = {};
 
 	SetReplicates(true);
 
@@ -90,11 +91,8 @@ void AFlatTerrainPart::Tick(float deltaTime) {
 
 
 
-		TArray<FVector2D> uvs = {};
 		TArray<FLinearColor> colors = {};
 		TArray<FProcMeshTangent> tangents = {};
-
-		GEngine->AddOnScreenDebugMessage(-1, 60, FColor::Green, TEXT("Created mesh for vertices > 0"));
 
 		/*
 		for (int i = 0; i < vertices.Num(); i++) {
@@ -103,8 +101,9 @@ void AFlatTerrainPart::Tick(float deltaTime) {
 		}
 		*/
 
-		UMaterialInterface* stoneMaterial = LoadObject<UMaterialInterface>(this, TEXT("/Script/Engine.Material'/Game/ProceduralMaterials/ProceduralGroundMaterial.ProceduralGroundMaterial'"));
-
+		//UMaterialInterface* stoneMaterial = LoadObject<UMaterialInterface>(this, TEXT("/Script/Engine.Material'/Game/ProceduralMaterials/ProceduralGroundMaterial.ProceduralGroundMaterial'"));
+		UMaterialInterface* stoneMaterial = LoadObject<UMaterialInterface>(this, TEXT("/Script/Engine.Material'/Game/ProceduralMaterials/StoreUvGroundInterpolation.StoreUvGroundInterpolation'"));
+		
 		mesh->CreateMeshSection_LinearColor(0, vertices, faces, normals, uvs, colors, tangents, true);
 		mesh->SetMaterial(0, stoneMaterial);
 		mesh->SetWorldLocationAndRotation(GetActorLocation(), FQuat::Identity);
@@ -151,48 +150,69 @@ TArray<FVector2D> AFlatTerrainPart::Create2DRandomFigure(int64 seedForThisObject
 
 }
 
-void AFlatTerrainPart::CreateGeometryOfOneStone(TArray<FVector>& verticesOut, TArray<int>& facesOut, int seed) {
+void AFlatTerrainPart::CreateGeometryOfOneStone(TArray<FVector>& verticesOut, TArray<int>& facesOut, TArray<FVector>& normalsOut, int seed) {
 	verticesOut = {};
 	facesOut = {};
 	TArray<FVector2D> shape2D = Create2DRandomFigure(seed, this->getChunkRegistry()->WorldPartitionCellSize);
+	
+	FVector2D randomBias = { RandomGenerator::IntToFloat(seed + 3950682) * 1000 - 500 , RandomGenerator::IntToFloat(seed + 3926682) * 10000 - 5000 };
 
-	FVector averageTopVertex = FVector(0, 0, 0);
+	for (FVector2D& v : shape2D) v += randomBias;
+
 
 	int topMiddleVertexIndex = shape2D.Num() * 2;
 
 	float topFaceScale = RandomGenerator::IntToFloat(seed + 123123123) * 0.4 + 0.7;
 
-	FVector2D randomBias = { RandomGenerator::IntToFloat(seed + 3950682) * 1000 - 500 , RandomGenerator::IntToFloat(seed + 3926682) * 10000 - 5000 };
-
 	float maxHeight1 = -10000;
 	float maxHeight2 = -10000;
-
+	float minHeight = 100000000000;
 	WorldGenerator* generator = globalWorldGenerator->GetGenerator();
+	TArray<float> absoulteHeightsOfInitialFigure = {};
 	FVector selfLocation = GetActorLocation();
-	for (FVector2D point2D : shape2D) {
-		point2D += randomBias;
-		float h = generator->GenerateHeight(selfLocation.X + point2D.X, selfLocation.Y + point2D.Y) - selfLocation.Z;
 
-		if (h > maxHeight2) {
-			if (h > maxHeight1) {
+	// Find the first and the second maximum absolute heights
+	for (FVector2D point2D : shape2D) {
+		float absoluteHeight = generator->GenerateHeight(selfLocation.X + point2D.X, selfLocation.Y + point2D.Y);
+		absoulteHeightsOfInitialFigure.Add(absoluteHeight);
+		if (absoluteHeight > maxHeight2) {
+			if (absoluteHeight > maxHeight1) {
 				maxHeight2 = maxHeight1;
-				maxHeight1 = h;
+				maxHeight1 = absoluteHeight;
 			}
 			else {
-				maxHeight2 = h;
+				maxHeight2 = absoluteHeight;
 			}
 		}
+		if (absoluteHeight < minHeight) {
+			minHeight = absoluteHeight;
+		}
+	}
+	float flatHeight = maxHeight2;
+	if (maxHeight1 - minHeight < 1000) {
+		flatHeight += 1600 * RandomGenerator::IntToFloat(seed + 234234);
+	}
 
-		verticesOut.Add({ point2D.X, point2D.Y, h - 10 });
-		float dh = RandomGenerator::IntToFloat(seed + verticesOut.Num() * 145) * 3000 + 800;
-		dh = 800;
-		verticesOut.Add({ point2D.X, point2D.Y, h + dh });
+	FVector averageTopVertex = FVector(0, 0, 0);
+
+	for (int pointIndex = 0; pointIndex < shape2D.Num(); pointIndex++) {
+		FVector2D point2D = shape2D[pointIndex];
+		
+		float absoluteHeight = absoulteHeightsOfInitialFigure[pointIndex];
+		float relativeHeight = absoluteHeight - selfLocation.Z;
+
+		verticesOut.Add({ point2D.X, point2D.Y, fminf(relativeHeight, flatHeight - selfLocation.Z)});
+		uvs.Add({ 0, flatHeight - absoluteHeight });
+		normalsOut.Add({ 0, 0, 1 });
+
+
+		verticesOut.Add({ point2D.X, point2D.Y, flatHeight - selfLocation.Z });
+		uvs.Add({ 0, 0 });
+		normalsOut.Add({ 0, 0, 1 });
 
 		int i = verticesOut.Num();
 		averageTopVertex += verticesOut[i - 1];
 
-		normals.Add({ 0, 0.7, 0.7 });
-		normals.Add({ 0, 0.7, 0.7 });
 
 		if (i == shape2D.Num() * 2) {
 			facesOut.Add(0);
@@ -224,14 +244,15 @@ void AFlatTerrainPart::CreateGeometryOfOneStone(TArray<FVector>& verticesOut, TA
 	}
 	averageTopVertex /= shape2D.Num();
 	verticesOut.Add(averageTopVertex);
+	uvs.Add({ 0, 0 });
+	normalsOut.Add({ 0, 0, 1 });
 
 	// For every top vertex
 	for (int i = 1; i < verticesOut.Num(); i += 2) {
 		verticesOut[i] = averageTopVertex + (verticesOut[i] - averageTopVertex) * topFaceScale;
-
-		verticesOut[i].Z = fmax(maxHeight2, verticesOut[i - 1].Z);
 	}
-	verticesOut[shape2D.Num() * 2].Z = maxHeight2;
+	//verticesOut[shape2D.Num() * 2].Z = maxHeight2;
+
 }
 
 void AFlatTerrainPart::setupByDefault() {
@@ -240,23 +261,30 @@ void AFlatTerrainPart::setupByDefault() {
 	vertices = {};
 	faces = {};
 	normals = {};
+	uvs = {};
 
 	if (!tryFindGeneratorIfNecessary()) {
 		return;
 	}
 
 	if (this->getChunkRegistry() != nullptr) {
+		WorldGenerator* generator = globalWorldGenerator->GetGenerator();
 		FVector selfLocation = GetActorLocation();
 		int64 objectSeed = this->globalWorldGenerator->GetGenerator()->GetSeed() + selfLocation.X * 10 + selfLocation.Y * 1000;
-		for (int stoneIterationInCluster = 0; stoneIterationInCluster < 3; stoneIterationInCluster++) {
-
+		int stonesNumber = RandomGenerator::IntToInt(objectSeed + 1346611) % 5 + 1;
+		for (int stoneIterationInCluster = 0; stoneIterationInCluster < stonesNumber; stoneIterationInCluster++) {
+			
 			TArray<FVector> newVertices = {};
 			TArray<int> newFaces = {};
-			this->CreateGeometryOfOneStone(newVertices, newFaces, objectSeed + stoneIterationInCluster * 234235);
+			TArray<FVector> newNormals = {};
+			this->CreateGeometryOfOneStone(newVertices, newFaces, newNormals, objectSeed + stoneIterationInCluster * 234235);
 
 			int n = vertices.Num();
 			for (FVector& vertex : newVertices) {
 				vertices.Add(vertex);
+			}
+			for (FVector& normal : newNormals) {
+				normals.Add(normal);
 			}
 			for (int vertexIndexForFace : newFaces) {
 				faces.Add(vertexIndexForFace + n);

@@ -257,7 +257,10 @@ void ALandscapeTile::SetupGeometry() {
 			}
 			uv.Add(FVector2D(u, v));
 			colors.Add(FLinearColor::White);
-			tangents.Add(FProcMeshTangent());
+
+			float l = sqrtf(1 + dx * dx);
+
+			tangents.Add(FProcMeshTangent(1 / l, 0, dx / l));
 			u += deltaU;
 			x += deltaX;
 		}
